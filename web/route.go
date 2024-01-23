@@ -36,12 +36,15 @@ func (r *router) addRoute(method string, path string, handler HandleFunc) {
 		r.trees[method] = root
 	}
 
+	// 根节点特殊处理一下
 	if path == "/" {
+		// 根节点重复注册
 		if root.handler != nil {
 			panic("web: 路由冲突[/]")
 		}
 
 		root.handler = handler
+		root.route = "/"
 		return
 	}
 
@@ -59,6 +62,7 @@ func (r *router) addRoute(method string, path string, handler HandleFunc) {
 	}
 
 	root.handler = handler
+	root.route = path
 
 }
 
@@ -106,6 +110,8 @@ func (r *router) findRoute(method string, path string) (*matchInfo, bool) {
 }
 
 type node struct {
+	route string
+
 	path string
 
 	// 静态匹配的节点

@@ -9,18 +9,24 @@ import (
 )
 
 type Context struct {
-	Req        *http.Request
-	Resp       http.ResponseWriter
+	Req *http.Request
+
+	// Resp 如果用户直接使用这个
+	// 那么他们就绕开了 RespData 和 RespStatusCode 两个
+	// 那么部分 middleware 无法运作
+	Resp http.ResponseWriter
+
+	// 这个主要是为了个 middleware 读写用的
+	RespData       []byte
+	RespStatusCode int
+
 	PathParams map[string]string
 
 	queryValues url.Values
 
+	MatchedRoute string
+
 	// cookieSameSite http.SameSite
-}
-
-// 用户每次都得自己检测是不是 500，然后调这个方法
-func (c *Context) ErrPage() {
-
 }
 
 func (c *Context) SetCookie(ck *http.Cookie) {
@@ -39,14 +45,9 @@ func (c *Context) RespJSON(status int, val any) error {
 		return err
 	}
 
-	c.Resp.WriteHeader(status)
-
-	n, err := c.Resp.Write(data)
-
-	if n != len(data) {
-		return errors.New("web: 未写入全部数据")
-	}
-	return err
+	c.RespData = data
+	c.RespStatusCode = status
+	return nil
 
 }
 

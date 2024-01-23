@@ -85,29 +85,50 @@ func (r *router) findRoute(method string, path string) (*node, bool) {
 }
 
 type node struct {
-	path     string
-	children map[string]*node
-	handler  HandleFunc
-}
+	path string
 
-func (n *node) childOf(path string) (*node, bool) {
-	if n.children == nil {
-		return nil, false
-	}
-	res, ok := n.children[path]
-	return res, ok
+	// 静态匹配的节点
+	// 子 path 到子节点的映射
+	children map[string]*node
+
+	// 加一个通配符匹配
+	starChild *node
+
+	handler HandleFunc
 }
 
 // childOrCreate 查找子节点，如果子节点不存在就创建一个
 // 并且将子节点放回去了 children 中
-func (n *node) childOrCreate(path string) *node {
+func (n *node) childOrCreate(seg string) *node {
+
+	if seg == "*" {
+		n.starChild = &node{
+			path: seg,
+		}
+		return n.starChild
+	}
+
 	if n.children == nil {
 		n.children = make(map[string]*node)
 	}
-	child, ok := n.children[path]
+	child, ok := n.children[seg]
 	if !ok {
-		child = &node{path: path}
-		n.children[path] = child
+		// 要新建一个
+		child = &node{path: seg}
+		n.children[seg] = child
 	}
 	return child
+}
+
+// childOf 优先考虑静态匹配，匹配不上，再考虑通配符匹配
+func (n *node) childOf(path string) (*node, bool) {
+	if n.children == nil {
+		return n.starChild, n.starChild != nil
+	}
+	child, ok := n.children[path]
+
+	if !ok {
+		return n.starChild, n.starChild != nil
+	}
+	return child, ok
 }

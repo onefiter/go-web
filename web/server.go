@@ -26,6 +26,11 @@ type Server interface {
 	// AddRoute1(method string, path string, handles ...HandleFunc)
 }
 
+//
+// type HTTPSServer struct {
+// 	HTTPServer
+// }
+
 type HTTPServerOption func(server *HTTPServer)
 
 type HTTPServer struct {
@@ -46,19 +51,22 @@ func NewHTTPServerV1(mdls ...Middleware) *HTTPServer {
 	}
 }
 
-func NewHTTPServer(opts ...HTTPServerOption) *HTTPServer {
+// 第一个问题：相对路径还是绝对路径？
+// 你的配置文件格式，json, yaml, xml
+// func NewHTTPServerV2(cfgFilePath string) *HTTPServer {
+// 你在这里加载配置，解析，然后初始化 HTTPServer
+// }
 
+func NewHTTPServer(opts ...HTTPServerOption) *HTTPServer {
 	res := &HTTPServer{
 		router: newRouter(),
 		log: func(msg string, args ...any) {
 			fmt.Printf(msg, args...)
 		},
 	}
-
 	for _, opt := range opts {
 		opt(res)
 	}
-
 	return res
 }
 
@@ -75,13 +83,13 @@ func (h *HTTPServer) ServeHTTP(writer http.ResponseWriter, request *http.Request
 		Req:  request,
 		Resp: writer,
 	}
+
 	// 最后一个是这个
 	root := h.serve
 
 	// 然后这里就是利用最后一个不断往前回溯组装链条
 	// 从后往前
 	// 把后一个作为前一个的 next 构造好链条
-
 	for i := len(h.mdls) - 1; i >= 0; i-- {
 		root = h.mdls[i](root)
 	}
@@ -100,7 +108,6 @@ func (h *HTTPServer) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	root = m(root)
 
 	root(ctx)
-
 }
 
 func (h *HTTPServer) flashResp(ctx *Context) {
@@ -124,8 +131,7 @@ func (h *HTTPServer) serve(ctx *Context) {
 		return
 	}
 	ctx.PathParams = info.pathParams
-	ctx.MatchedRoute = info.n.path
-
+	ctx.MatchedRoute = info.n.route
 	// before execute
 	info.n.handler(ctx)
 	// after execute
@@ -148,6 +154,10 @@ func (h *HTTPServer) Post(path string, handleFunc HandleFunc) {
 func (h *HTTPServer) Options(path string, handleFunc HandleFunc) {
 	h.addRoute(http.MethodOptions, path, handleFunc)
 }
+
+// func (h *HTTPServer) AddRoute1(method string, path string, handleFunc ...HandleFunc) {
+// 	panic("implement me")
+// }
 
 // Start 启动服务器，用户指定端口
 // 这种就是编程接口

@@ -10,142 +10,87 @@ import (
 
 type Context struct {
 	Req *http.Request
-
-	// Resp 如果用户直接使用这个
-	// 那么他们就绕开了 RespData 和 RespStatusCode 两个
-	// 那么部分 middleware 无法运作
+	// Resp 原生的 ResponseWriter。当你直接使用 Resp 的时候，
+	// 那么相当于你绕开了 RespStatusCode 和 RespData。
+	// 响应数据直接被发送到前端，其它中间件将无法修改响应
+	// 其实我们也可以考虑将这个做成私有的
 	Resp http.ResponseWriter
-
-	// 这个主要是为了个 middleware 读写用的
-	RespData       []byte
+	// 缓存的响应部分
+	// 这部分数据会在最后刷新
 	RespStatusCode int
+	RespData       []byte
 
 	PathParams map[string]string
-
-	queryValues url.Values
-
+	// 命中的路由
 	MatchedRoute string
 
-	// cookieSameSite http.SameSite
+	// 万一将来有需求，可以考虑支持这个，但是需要复杂一点的机制
+	// Body []byte 用户返回的响应
+	// Err error 用户执行的 Error
+
+	// 缓存的数据
+	cacheQueryValues url.Values
 }
 
-func (c *Context) SetCookie(ck *http.Cookie) {
-	// 不推荐
-	// ck.SameSite = c.cookieSameSite
-	http.SetCookie(c.Resp, ck)
+func (c *Context) BindJSON(val any) error {
+	if c.Req.Body == nil {
+		return errors.New("web: body 为 nil")
+	}
+	decoder := json.NewDecoder(c.Req.Body)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(val)
+}
+
+func (c *Context) FormValue(key string) StringValue {
+	if err := c.Req.ParseForm(); err != nil {
+		return StringValue{err: err}
+	}
+	return StringValue{val: c.Req.FormValue(key)}
+}
+
+func (c *Context) QueryValue(key string) StringValue {
+	if c.cacheQueryValues == nil {
+		c.cacheQueryValues = c.Req.URL.Query()
+	}
+	vals, ok := c.cacheQueryValues[key]
+	if !ok {
+		return StringValue{err: errors.New("web: 找不到这个 key")}
+	}
+	return StringValue{val: vals[0]}
+}
+
+func (c *Context) PathValue(key string) StringValue {
+	val, ok := c.PathParams[key]
+	if !ok {
+		return StringValue{err: errors.New("web: 找不到这个 key")}
+	}
+	return StringValue{val: val}
+}
+
+func (c *Context) SetCookie(cookie *http.Cookie) {
+	http.SetCookie(c.Resp, cookie)
 }
 
 func (c *Context) RespJSONOK(val any) error {
 	return c.RespJSON(http.StatusOK, val)
 }
 
-func (c *Context) RespJSON(status int, val any) error {
-	data, err := json.Marshal(val)
+func (c *Context) RespJSON(code int, val any) error {
+	bs, err := json.Marshal(val)
 	if err != nil {
 		return err
 	}
-
-	c.RespData = data
-	c.RespStatusCode = status
-	return nil
-
+	c.RespStatusCode = code
+	c.RespData = bs
+	return err
 }
 
-// 解决大多数人的需求
-func (c *Context) BindJSON(val any) error {
-
-	if c.Req.Body == nil {
-		return errors.New("web: body 为 nil")
-	}
-	// bs, _:= io.ReadAll(c.Req.Body)
-	// json.Unmarshal(bs, val)
-	decoder := json.NewDecoder(c.Req.Body)
-	// useNumber => 数字就是用 Number 来表示
-	// 否则默认是 float64
-	// if jsonUseNumber {
-	// 	decoder.UseNumber()
-	// }
-
-	// 如果要是有一个未知的字段，就会报错
-	// 比如说你 User 只有 Name 和 Email 两个字段
-	// JSON 里面额外多了一个 Age 字段，那么就会报错
-	// decoder.DisallowUnknownFields()
-	return decoder.Decode(val)
-}
-
-// FormValue(key1)
-// FormValue(key2)
-func (c *Context) FormValue(key string) (string, error) {
-	err := c.Req.ParseForm()
-	if err != nil {
-		return "", err
-	}
-	return c.Req.FormValue(key), nil
-}
-
-// Query 和表单比起来，它没有缓存
-func (c *Context) QueryValue(key string) (string, error) {
-
-	if c.queryValues == nil {
-		c.queryValues = c.Req.URL.Query()
-	}
-
-	vals, ok := c.queryValues[key]
-	if !ok {
-		return "", errors.New("web: key 不存在")
-	}
-	return vals[0], nil
-
-	// 用户区别不出来是真的有值，但是值恰好是空字符串
-	// 还是没有值
-	// return c.queryValues.Get(key), nil
-}
-
-func (c *Context) QueryValueV1(key string) StringValue {
-
-	if c.queryValues == nil {
-		c.queryValues = c.Req.URL.Query()
-	}
-
-	vals, ok := c.queryValues[key]
-	if !ok {
-		return StringValue{
-			err: errors.New("web: key 不存在"),
-		}
-	}
-	return StringValue{
-		val: vals[0],
-	}
-
-	// 用户区别不出来是真的有值，但是值恰好是空字符串
-	// 还是没有值
-	// return c.queryValues.Get(key), nil
-}
-
-func (c *Context) PathValueV1(key string) StringValue {
-	val, ok := c.PathParams[key]
-	if !ok {
-		return StringValue{
-			err: errors.New("web: key 不存在"),
-		}
-	}
-	return StringValue{
-		val: val,
-	}
-}
-
-func (c *Context) PathValue(key string) (string, error) {
-	val, ok := c.PathParams[key]
-	if !ok {
-		return "", errors.New("web: key 不存在")
-	}
-	return val, nil
-}
-
-// 这种泛型不行，因为在创建的时候我们不知道用户需要什么作为 T
-// type StringValue[T any] struct {
-// 	val string
-// 	err error
+// func (c *Context) QueryValueAsInt64(key string) (int64, error) {
+// 	val, err := c.QueryValue(key)
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	return strconv.ParseInt(val, 10, 64)
 // }
 
 type StringValue struct {
@@ -153,9 +98,18 @@ type StringValue struct {
 	err error
 }
 
-func (s StringValue) AsInt64() (int64, error) {
+func (s StringValue) String() (string, error) {
+	return s.val, s.err
+}
+
+func (s StringValue) ToInt64() (int64, error) {
 	if s.err != nil {
 		return 0, s.err
 	}
 	return strconv.ParseInt(s.val, 10, 64)
 }
+
+// 不能用泛型
+// func (s StringValue) To[T any]() (T, error) {
+//
+// }

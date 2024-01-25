@@ -2,42 +2,49 @@ package accesslog
 
 import (
 	"encoding/json"
+	"log"
 
 	"github.com/go-web/web"
 )
 
 type MiddlewareBuilder struct {
-	logFunc func(log string)
+	logFunc func(accessLog string)
 }
 
-func (m *MiddlewareBuilder) LogFunc(fn func(log string)) *MiddlewareBuilder {
-	m.logFunc = fn
-	return m
+func (b *MiddlewareBuilder) LogFunc(logFunc func(accessLog string)) *MiddlewareBuilder {
+	b.logFunc = logFunc
+	return b
 }
 
-func (m MiddlewareBuilder) Build() web.Middleware {
-	return func(next web.HandleFunc) web.HandleFunc {
-		return func(ctx *web.Context) {
-			// 要记录请求
-			defer func() {
-				l := accessLog{
-					Host:       ctx.Req.Host,
-					Route:      ctx.MatchedRoute,
-					HTTPMethod: ctx.Req.Method,
-					Path:       ctx.Req.URL.Path,
-				}
-				data, _ := json.Marshal(l)
-				m.logFunc(string(data))
-			}()
-			next(ctx)
-		}
+func NewBuilder() *MiddlewareBuilder {
+	return &MiddlewareBuilder{
+		logFunc: func(accessLog string) {
+			log.Println(accessLog)
+		},
 	}
 }
 
 type accessLog struct {
-	Host string `json:"host,omitempty"`
-	// 命中的路由
-	Route      string `json:"route,omitempty"`
-	HTTPMethod string `json:"http_method,omitempty"`
-	Path       string `json:"path,omitempty"`
+	Host       string
+	Route      string
+	HTTPMethod string `json:"http_method"`
+	Path       string
+}
+
+func (b *MiddlewareBuilder) Build() web.Middleware {
+	return func(next web.HandleFunc) web.HandleFunc {
+		return func(ctx *web.Context) {
+			defer func() {
+				l := accessLog{
+					Host:       ctx.Req.Host,
+					Route:      ctx.MatchedRoute,
+					Path:       ctx.Req.URL.Path,
+					HTTPMethod: ctx.Req.Method,
+				}
+				val, _ := json.Marshal(l)
+				b.logFunc(string(val))
+			}()
+			next(ctx)
+		}
+	}
 }
